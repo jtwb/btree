@@ -2,44 +2,12 @@ const util = require('util');
 const _ = require('lodash');
 
 
+const NODE_SIZE = 8;
+const DEBUG = typeof v8debug !== 'undefined';
+
+
 function pad(s, n, c=' ') {
     return c.repeat(Math.max(0, Math.min(n, n-s.length))) + s;
-}
-
-
-class BTree11 {
-    constructor(data, comparator) {
-        this.data = data;
-        this.comparator = comparator;
-        this[Symbol.for('built')] = true;
-        this[Symbol.for('rebuild')]();
-    }
-    [Symbol.for('rebuild')]() {
-        if (!this[Symbol.for('built')]) {
-            return;
-        }
-        // data is an array
-        for (const item of data) {
-            this.put(item);
-        }
-    }
-    get data() {
-        return this[Symbol.for('data')];
-    }
-    set data(data) {
-        this[Symbol.for('data')] = data;
-        this[Symbol.for('rebuild')]();
-    }
-    get comparator() {
-        this[Symbol.for('comparator')];
-    }
-    set comparator(comparator) {
-        this[Symbol.for('comparator')] = comparator;
-        this[Symbol.for('rebuild')]();
-    }
-
-    put(item) {
-    }
 }
 
 
@@ -56,8 +24,6 @@ class Node {
 }
 
 
-const NODE_SIZE = 8;
-const DEBUG = typeof v8debug !== 'undefined';
 const g = (x, n) => ({
     g: (m => g(x.children[n], m)),
     n: x.children[n]
@@ -69,61 +35,12 @@ class BTree {
         this.root = new Node();
         this.comparator = comparator;
         this.size = 0;
-        debugger;
         for (const item of data) {
             this.put(item);
         }
     }
     put(item) {
-        DEBUG && console.log('\n.');
-        /*
-        const locate_or_build_node = (node, item) => {
-            const left_child = node.left_child;
-            const right_child = node.right_child;
-            if (left_child && this.comparator(left_child.max(), item) >= 0) {
-                return locate_or_build_node(left_child, item);
-            }
-            if (right_child && this.comparator(right_child.min(), item) >= 0) {
-                return locate_or_build_node(right_child, item);
-            }
-            return node;
-        }
-        const insert2 = (node, item) => {
-            DEBUG && console.log('i');
-            node.data.push(item);
-            node.data.sort(this.comparator);
-            if (node.data.length > NODE_SIZE) {
-                DEBUG && console.log(`${node.data.length}`);
-                const to_left = node.data[0];
-                const to_right = node.data[node.data.length -1];
-                node.data = node.data.slice(1, -1);
-                if (node.left_child) {
-                    DEBUG && console.log('<n');
-                    insert(node.left_child, to_left);
-                } else {
-                    DEBUG && console.log('<N');
-                    node.left_child = new Node({
-                        parent: node,
-                        data: [to_left]
-                    });
-                } // Q: can this run symmetrically, with left and right in a tuple?
-                // node.children[LEFT] node.children[RIGHT] to_move[LEFT] to_move[RIGHT]
-                if (node.right_child) {
-                    DEBUG && console.log('>n');
-                    insert(node.right_child, to_right);
-                } else {
-                    DEBUG && console.log('>N');
-                    node.right_child = new Node({
-                        parent: node,
-                        data: [to_right]
-                    });
-                }
-            }
-        }
-        const container = locate_or_build_node(this.root, item);
-        insert(container, item);
-        */
-
+        DEBUG && process.stdout.write('\n.');
         const data_insert = (data, item) => {
             for (let i=0; i < data.length; i++) {
                 if (this.comparator(data[i], item) > 0) {
@@ -135,18 +52,14 @@ class BTree {
 
         const locate_leaf = () => {
             let node = this.root, found = null;
-            if ([19, 100].indexOf(item) >= 0) {
-                debugger;
-                console.log(util.inspect(this));
-            }
             for (; found === null; ) {
                 if (node.children.length === 0) {
-                    DEBUG && console.log('o');
+                    DEBUG && process.stdout.write('o');
                     found = true;
                     continue;
                 }
                 const i = data_insert(node.data, item);
-                DEBUG && console.log(`${i}>`);
+                DEBUG && process.stdout.write(`${i}>`);
                 node = node.children[i];
             }
             return node;
@@ -157,18 +70,19 @@ class BTree {
          * Locate Leaf: this locates the leaf that should contain the inserted item.
          * It's possible the leaf may be full. The next section will handle that case.
          */
-        DEBUG && console.log(`(${item})`);
+        DEBUG && process.stdout.write(`(${item})`);
         const leaf = locate_leaf();
 
         this.size++;
         leaf.data.push(item);
         leaf.data.sort(this.comparator); // TODO be smarter here - Int32 semantics
-        DEBUG && console.log(leaf.data.length.toString());
+        DEBUG && process.stdout.write(leaf.data.length.toString());
 
         /*
          * Simple path: target node has space. Just insert and return.
          */
         if (leaf.data.length <= NODE_SIZE) {
+            DEBUG && this.invariantChecks();
             return;
         }
 
@@ -195,7 +109,7 @@ class BTree {
         let util1 = util;
         //
         for (let blown_node = leaf; !done;) {
-            DEBUG && console.log('x');
+            DEBUG && process.stdout.write('x');
             let new_right = null;
 
             const data = blown_node.data;
@@ -213,6 +127,9 @@ class BTree {
                     children: children_to_right,
                     data: to_right
                 });
+                for (const c_to_right of children_to_right) {
+                    c_to_right.parent = new_right;
+                }
             } else {
                 blown_node.data = to_left;
                 new_right = new Node({
@@ -247,7 +164,7 @@ class BTree {
         if (new_root) {
             this.root = new_root;
         }
-        this.safetyChecks();
+        DEBUG && this.invariantChecks();
     }
 
     values() {
@@ -255,10 +172,11 @@ class BTree {
         const result = [];
         const emit = (...values) => result.push(...values);
 
+        DEBUG && process.stdout.write('v');
         for (let visit_node;
                 plan_queue.length; ){
-            DEBUG && console.log('.');
-            DEBUG && console.log(`${plan_queue.length}`);
+            DEBUG && process.stdout.write('.');
+            DEBUG && process.stdout.write(`${plan_queue.length}`);
 
             visit_node = plan_queue.pop();
             if (Array.isArray(visit_node)) {
@@ -296,7 +214,9 @@ class BTree {
                         throw new Error('bad ch');
                     }
                 }
-                plan_queue.push(...visit_node.children.reverse().map(x => [x, idepth+1]));
+                for (let i = visit_node.children.length - 1; i >= 0; i--) {
+                    plan_queue.push([visit_node.children[i], idepth+1]);
+                }
             }
             out += ' '.repeat(idepth) + pad(`${idepth}`, 2) + (visit_node.children.length > 0 ? '  ' : 'L ');
             out += util.inspect(visit_node.data);
@@ -305,14 +225,14 @@ class BTree {
         return out;
     }
 
-    safetyChecks() {
+    invariantChecks() {
         const sortedvalues = this.values();
         sortedvalues.sort(this.comparator);
         const rawvalues = this.values();
         if (!_.isEqual(sortedvalues, rawvalues)) {
-            debugger;
             console.log(util.inspect(this));
             console.log('not sorted');
+            debugger;
         }
     }
 }
@@ -331,9 +251,9 @@ class TestSuite {
             const description = describe();
             const localStack = (new Error()).stack.split('\n').slice(1).join('\n');
             this.failures.push(description + '\n' + localStack);
-            console.log('F');
+            process.stdout.write('F');
         } else {
-            console.log('.');
+            process.stdout.write('.');
         }
     }
     assertEqual(a, b) {
