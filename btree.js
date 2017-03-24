@@ -6,13 +6,20 @@ const NODE_SIZE = 8;
 const DEBUG = typeof v8debug !== 'undefined';
 
 
-/* *  Utilities  * */
+/*
+ *
+ *
+ * *  Utilities  * */
 function pad(s, n, c=' ') {
+    /* yeah, it's left-pad */
     return c.repeat(Math.max(0, Math.min(n, n-s.length))) + s;
 }
 
 
 function* range(min, max=null, step=1) {
+    /* Array.from(range(4,12)) => [4,5,6,7,8,9,10,11,12] */
+    /* Array.from(range(0,4,2)) => [0,2,4] */
+    /* Array.from(range(4)) => [0,1,2,3,4] */
     if (max === null) {
         [min, max] = [0, min];
     }
@@ -23,6 +30,10 @@ function* range(min, max=null, step=1) {
 
 
 
+/*
+ *
+ *
+ * * BTree private classes * */
 class Node {
     constructor({
         parent=null,
@@ -36,13 +47,21 @@ class Node {
 }
 
 
+/*
+ *
+ *
+ * * BTree-Node private methods * */
 const g = (x, n) => ({
+    /* A quick decend-child debug tool */
     g: (m => g(x.children[n], m)),
     n: x.children[n]
 });
 
 
-/* *  BTree private methods  * */
+/*
+ *
+ *
+ * *  BTree private methods  * */
 function data_insert(data, item) {
     for (let i=0; i < data.length; i++) {
         if (this.comparator(data[i], item) > 0) {
@@ -69,6 +88,10 @@ function locate_leaf(item) {
 }
 
 
+/*
+ *
+ *
+ * * BTree * */
 class BTree {
     constructor(data, comparator) {
         this.root = new Node();
@@ -205,7 +228,7 @@ class BTree {
             if (visit_node.children.length > 0) {
                 plan_queue.push(visit_node.children[visit_node.data.length]);
                 for (let i = visit_node.data.length - 1; i >= 0; i--) {
-                    plan_queue.push([visit_node.data[i]]); // array signals queued raw emit
+                    plan_queue.push([visit_node.data[i]]); // array inidicates enqueued emit action
                     plan_queue.push(visit_node.children[i]);
                 }
             } else {
@@ -237,6 +260,32 @@ class BTree {
     }
 
     *iteratorRange({ min=null, max=null, ascending=true }={}) {
+        /*
+         * Return all items in the collection between min and max, inclusive, ordered ascending or decending.
+         *
+         * Introduction to the code:
+         *  (1) it's a non-recursive implementation, so we maintain a stack in memory. However, it's not a
+         *      call stack, it's a stack of work-to-process which is a little different. A key difference between
+         *      a call stack and a work-to-process stack is illustrated by the state of the stack when finishing
+         *      a big sub-tree. In a call stack, after finishing a big sub-tree the stack would look like so:
+         *      (a) [(node=root i=0), (node=0 i=8), (node=0,8 i=8), (node=0,8,8 i=8)]
+         *      And on the next step it would look like:
+         *      (b) [(node=root i=0), (node=0 i=8), (node=0,8 i=8)]
+         *      And three steps later:
+         *      (c) [(node=root i=1), (node=1 i=0)]
+         *      The work-to-process stack is simpler. After finishing a big sub-tree the work stack would be:
+         *      (d) [(action=emit val=15), (action=visit node=1), (action=emit val=40), (action=visit node=2), ...]
+         *      And after a two steps, we would process the emit action and the visit action:
+         *      (d) [(action=visit node=1,0), (action=emit val=16), (action=visit node=1,1), (action=emit val=17), ...]
+         *      So that pushes a few more visit and emit actions to the stack.
+         *  (2) three special cases require special attention: when we visit a node where no values match the range filter,
+         *      we still need to explore the approriate sub-nodes
+         *      (a) if the min and max fall in between two values, explore the sub-node in that gap
+         *      (b) if the max is smaller than all values, explore the leftmost sub-node
+         *      (c) if the min is greater than all values, explore the rightmost sub-node
+         *      Technically (b) and (c) are sub-cases of (a), however (a) requires a scan through the the data values
+         *      while (b) and (c) can be short-circuited around the scan, so we handle them separately.
+         */
         let filter;
         if (min === null && max === null) {
             filter = x => true;
@@ -245,14 +294,18 @@ class BTree {
         } else if (max === null) {
             filter = x => this.comparator(x, min) >= 0;
         } else {
+            if (min > max) {
+                return;
+            }
             filter = x => this.comparator(x, min) >= 0 && this.comparator(x, max) <= 0
         }
 
         let plan_stack = [this.root];
         for (let node; plan_stack.length > 0; ) {
-            if (plan_stack.length === 1) {
-                debugger;
-            }
+            /*
+             * A non-array item on the stack is a 'visit' action.
+             * An array item on the stack is an 'emit' action.
+             */
             node = plan_stack.pop();
             if (Array.isArray(node)) {
                 yield node[0];
@@ -278,9 +331,25 @@ class BTree {
                     const [last_i, __a] = ok[ok.length-1];
                     for (const [i, __b] of ok) {
                         to_stack.push(node.children[i]);
-                        to_stack.push([node.data[i]]); // array signals queued raw emit
+                        to_stack.push([node.data[i]]); // array indicates enqueued emit action
                     }
                     to_stack.push(node.children[last_i + 1])
+                } else {
+                    if (min !== null && max !== null) {
+                        /* If min and max fall between two values, we must still explore
+                         * the child node between those two values.
+                         *
+                         * Approach: scan for the first value greater than min. This is the uppermost
+                         * value bound of the desired target node.
+                         */
+                        let i;
+                        for (i of range(node.data.length-1)) { /* Note: helper fn also named range */
+                            if (this.comparator(node.data[i], min) >= 0) {
+                                break;
+                            }
+                        }
+                        plan_stack.push(node.children[i]);
+                    }
                 }
                 if (ascending) {
                     to_stack.reverse();
@@ -297,45 +366,6 @@ class BTree {
                 }
             }
         }
-
-
-        /*
-        let node = this.root, found = null;
-        const partials = [this.root];
-        for (; found === null; ) {
-            let i = 0;
-            for (let i=0; i < data.length; i++) {
-                if (this.comparator(data[i], item) > 0) {
-                    break;
-                }
-            }
-            DEBUG && process.stdout.write(`${i}>`);
-            partials.push([node, i]);
-
-            if (node.children.length === 0) {
-                found = true;
-                continue;
-            }
-            node = node.children[i];
-        }
-
-        partials.reverse();
-        for (const [partial_node, start] of partials) {
-            const data = partial_node.data;
-            if (partial_node.children.length > 0) {
-                for (let i = start; i < partial_node.data; i++) {
-                }
-            } else {
-                yield* partial_node.data.filter(x => x > item);
-            }
-            for (let i=0; i < data.length; i++) {
-                if (this.comparator(data[i], item) > 0) {
-                    break;
-                }
-            }
-            partial_node
-        }
-        */
     }
 
     range(options) {
@@ -383,6 +413,10 @@ class BTree {
 }
 
 
+/*
+ *
+ *
+ * * TestSuite * */
 class TestSuite {
     constructor() {
         this.total = 0;
@@ -423,6 +457,10 @@ class TestSuite {
 }
 
 
+/*
+ *
+ *
+ * * BTree Test Suite * */
 class BTreeTest extends TestSuite {
     constructor() {
         super();
@@ -442,6 +480,12 @@ class BTreeTest extends TestSuite {
             this.assertEqual(bt.range({ min: 8 }), smdata.slice().sort((a, b) => a - b).filter(x => x >= 8));
             this.assertEqual(bt.range({ max: 69 }), smdata.slice().sort((a, b) => a - b).filter(x => x < 70));
             this.assertEqual(bt.range({ max: 70 }), smdata.slice().sort((a, b) => a - b).filter(x => x <= 70));
+            this.assertEqual(bt.range({ min: 9, max: 69 }), smdata.slice().sort((a, b) => a - b).filter(x => x >= 9 && x <= 69));
+            this.assertEqual(bt.range({ min: 45, max: 63 }), smdata.slice().sort((a, b) => a - b).filter(x => x >= 45 && x <= 63));
+
+            // check zero result cases
+            this.assertEqual(bt.range({ min: 200, max: 50 }), []);
+            this.assertEqual(bt.range({ min: 51, max: 50 }), []);
         }
         {
             const bt = new BTree(data, (a, b) => a - b);
@@ -458,11 +502,16 @@ class BTreeTest extends TestSuite {
             this.assertEqual(bt.range({ min: 100 }), data.slice().sort((a, b) => a - b).filter(x => x >= 100));
             this.assertEqual(bt.range({ max: 1 }), data.slice().sort((a, b) => a - b).filter(x => x <= 1));
 
-            // check zero result case
+            // check zero result cases
             this.assertEqual([], data.slice().sort((a, b) => a - b).filter(x => x >= 200));
             this.assertEqual(bt.range({ min: 200 }), data.slice().sort((a, b) => a - b).filter(x => x >= 200));
+            this.assertEqual(bt.range({ min: 200, max: 400 }), data.slice().sort((a, b) => a - b).filter(x => x >= 200));
             this.assertEqual([], data.slice().sort((a, b) => a - b).filter(x => x <= 0));
             this.assertEqual(bt.range({ max: 0 }), data.slice().sort((a, b) => a - b).filter(x => x <= 0));
+            this.assertEqual(bt.range({ min: -200, max: 0 }), data.slice().sort((a, b) => a - b).filter(x => x <= 0));
+
+            // in-between case
+            this.assertEqual(bt.range({ min: 26, max: 35 }), data.slice().sort((a, b) => a - b).filter(x => x >= 26 && x <= 35));
         }
     }
 }
