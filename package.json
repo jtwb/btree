@@ -2,7 +2,7 @@
   "name": "test-prep",
   "version": "1.0.0",
   "description": "btree etc",
-  "main": "index.js",
+  "main": "btree.js",
   "author": "jtwb",
   "license": "MIT",
   "dependencies": {
