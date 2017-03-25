@@ -1,0 +1,14 @@
+{
+  "name": "test-prep",
+  "version": "1.0.0",
+  "description": "btree etc",
+  "main": "index.js",
+  "author": "jtwb",
+  "license": "MIT",
+  "dependencies": {
+    "lodash": "^4.17.4"
+  },
+  "devDependencies": {
+    "node-inspector": "^0.12.10"
+  }
+}
