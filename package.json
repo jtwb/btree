@@ -9,6 +9,7 @@
     "lodash": "^4.17.4"
   },
   "devDependencies": {
+    "csv-stringify": "^1.0.4",
     "node-inspector": "^0.12.10"
   }
 }
