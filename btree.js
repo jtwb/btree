@@ -259,7 +259,7 @@ class BTree {
         }
     }
 
-    *iteratorRange({ min=null, max=null, ascending=true }={}) {
+    range({ min=null, max=null, ascending=true }={}) {
         /*
          * Return all items in the collection between min and max, inclusive, ordered ascending or decending.
          *
@@ -286,6 +286,9 @@ class BTree {
          *      Technically (b) and (c) are sub-cases of (a), however (a) requires a scan through the the data values
          *      while (b) and (c) can be short-circuited around the scan, so we handle them separately.
          */
+        // TODO instrument visits!
+        const result = [];
+        let nodes_visited = 0;
         let filter;
         if (min === null && max === null) {
             filter = x => true;
@@ -295,20 +298,22 @@ class BTree {
             filter = x => this.comparator(x, min) >= 0;
         } else {
             if (min > max) {
-                return;
+                console.log({ visited: nodes_visited });
+                return [];
             }
             filter = x => this.comparator(x, min) >= 0 && this.comparator(x, max) <= 0
         }
 
-        let plan_stack = [this.root];
+        const plan_stack = [this.root];
         for (let node; plan_stack.length > 0; ) {
+            nodes_visited ++;
             /*
              * A non-array item on the stack is a 'visit' action.
              * An array item on the stack is an 'emit' action.
              */
             node = plan_stack.pop();
             if (Array.isArray(node)) {
-                yield node[0];
+                result.push(node[0]);
                 continue;
             }
             if (node.children.length > 0) {
@@ -357,20 +362,24 @@ class BTree {
                 plan_stack.push(...to_stack);
             } else {
                 if (ascending) {
-                    yield* node.data
-                        .filter(filter)
+                    result.push(...node.data
+                        .filter(filter));
                 } else {
-                    yield* node.data
+                    result.push(...node.data
                         .filter(filter)
-                        .reverse();
+                        .reverse());
                 }
             }
         }
+        console.log({ visited: nodes_visited });
+        return result;
     }
 
+    /*
     range(options) {
         return Array.from(this.iteratorRange(options));
     }
+    */
 
     inspect(depth, options) {
         let out = options.stylize('[BTree]\n', 'special');
